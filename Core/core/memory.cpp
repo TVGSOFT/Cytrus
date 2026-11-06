@@ -51,6 +51,14 @@ public:
         return false;
     }
 
+    /// xappify fork: drop every mark. See MemorySystem::ClearRasterizerCachedMarks.
+    void Clear() {
+        vram.fill(false);
+        linear_heap.fill(false);
+        new_linear_heap.fill(false);
+        plugin_fb.fill(false);
+    }
+
 private:
     bool* At(VAddr addr) {
         if (addr >= VRAM_VADDR && addr < VRAM_VADDR_END) {
@@ -776,6 +784,27 @@ void MemorySystem::SetWriteWatch(VAddr addr, u32 len) {
     }
 }
 
+// xappify fork — see the header.
+void MemorySystem::ClearRasterizerCachedMarks() {
+    u32 pages = 0;
+    for (auto& page_table : impl->page_table_list) {
+        for (std::size_t i = 0; i < PAGE_TABLE_NUM_ENTRIES; i++) {
+            if (page_table->attributes[i] != PageType::RasterizerCachedMemory) {
+                continue;
+            }
+            const VAddr vaddr = static_cast<VAddr>(i) << CITRA_PAGE_BITS;
+            page_table->attributes[i] = PageType::Memory;
+            page_table->pointers[i] = GetPointerForRasterizerCache(vaddr);
+            pages++;
+        }
+    }
+    impl->cache_marker.Clear();
+    if (pages != 0) {
+        LOG_WARNING(HW_Memory, "save state carried {} stale rasterizer-cached pages; reset to Memory",
+                    pages);
+    }
+}
+
 void MemorySystem::RasterizerMarkRegionCached(PAddr start, u32 size, bool cached) {
     if (start == 0) {
         return;
@@ -801,6 +830,14 @@ void MemorySystem::RasterizerMarkRegionCached(PAddr start, u32 size, bool cached
                         page_type = PageType::RasterizerCachedMemory;
                         page_table->pointers[vaddr >> CITRA_PAGE_BITS] = nullptr;
                         break;
+                    case PageType::RasterizerCachedMemory:
+                        // xappify fork: already in the requested state. Upstream treats this as
+                        // UNREACHABLE, but a save state written while the rasterizer cache's page
+                        // bookkeeping was wrong (see ClearRasterizerCachedMarks) can leave pages
+                        // marked cached with no owning surface; the pointer is already null, so
+                        // the state is exactly what this branch would produce. Tolerate it.
+                        LOG_WARNING(HW_Memory, "page {:#010x} already rasterizer-cached", vaddr);
+                        break;
                     default:
                         UNREACHABLE();
                     }
@@ -817,6 +854,10 @@ void MemorySystem::RasterizerMarkRegionCached(PAddr start, u32 size, bool cached
                             GetPointerForRasterizerCache(vaddr & ~CITRA_PAGE_MASK);
                         break;
                     }
+                    case PageType::Memory:
+                        // xappify fork: already uncached — same tolerance as above.
+                        LOG_WARNING(HW_Memory, "page {:#010x} already uncached", vaddr);
+                        break;
                     default:
                         UNREACHABLE();
                     }

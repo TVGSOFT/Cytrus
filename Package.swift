@@ -136,6 +136,18 @@ var cytrusCXXSettings: [CXXSetting] = [
     // uncatchable, but RunLoop wraps LoadState in try/catch(std::exception), so throwing lets
     // that ErrorSavestate recovery run instead of killing the app.
     .define("BOOST_ENABLE_ASSERT_HANDLER"),
+    // libc++ in Xcode 27 (LLVM 21) rewrote std::map/std::set lower_bound/upper_bound for unique-key
+    // containers to stop at the FIRST equivalent node. boost::icl's interval_set/interval_map key
+    // their std::map on `exclusive_less_than`, under which every overlapping interval is
+    // "equivalent" (not a strict weak ordering), and icl's add/subtract assume lower_bound returns
+    // the FIRST overlapping segment. With the new search, RasterizerCache::cached_pages (and the
+    // kernel's IntervalSet) silently lose segments: observed as the icl gap_insert BOOST_ASSERT
+    // firing ~1s into any 3DS title (SIGABRT via the throwing handler), identical source builds
+    // fine with Xcode 26. This macro is libc++'s documented escape hatch for exactly this case
+    // (comment in <__tree>: "Compatibility escape hatch for comparators that are not strict weak
+    // orderings … can be removed for the LLVM 23 release"). Durable fix: a boost release whose
+    // icl no longer relies on std::map lookup semantics (boostorg/icl#53), then drop this.
+    .define("_LIBCPP_ENABLE_LEGACY_TREE_LOWER_UPPER_BOUND"),
     // iOS renders via Vulkan→MoltenVK only (settings.h #errors without one).
     .define("ENABLE_VULKAN"),
     .define("ZSTD_STATIC_LINKING_ONLY"), // zstd_compression.cpp uses advanced API

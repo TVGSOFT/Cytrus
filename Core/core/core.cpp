@@ -1191,6 +1191,11 @@ void System::serialize(Archive& ar, const unsigned int file_version) {
     }
 
     ar&* memory.get();
+    if (Archive::is_loading::value) {
+        // xappify fork: the page tables just loaded may carry rasterizer-cached marks from a save
+        // written by a build with broken cache bookkeeping; the GPU cache is empty here.
+        memory->ClearRasterizerCachedMarks();
+    }
     ar&* kernel.get();
     ar&* gpu.get();
     ar & movie;

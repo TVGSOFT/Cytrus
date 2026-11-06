@@ -609,6 +609,22 @@ public:
     void RasterizerMarkRegionCached(PAddr start, u32 size, bool cached);
 
     /**
+     * xappify fork: after a save-state load, reset every page still typed
+     * `RasterizerCachedMemory` back to `Memory` (restoring its pointer) and clear the cache
+     * marker.
+     *
+     * `PageTable::attributes` and the `RasterizerCacheMarker` are serialized. A save written
+     * while the rasterizer cache's page bookkeeping was broken (the Xcode 27 libc++ /
+     * boost::icl lookup bug, see Package.swift) could not unmark all its pages in
+     * `ClearAll(true)` before serializing, so the file carries cached marks for pages no surface
+     * owns. The GPU cache is empty after a load (`ClearAll(false)` ran before deserializing), so
+     * any surviving mark is stale by definition; left in place it either traps the first
+     * `RegisterSurface` on that page or routes every guest access through the slow path.
+     * Call after `memory` has been deserialized.
+     */
+    void ClearRasterizerCachedMarks();
+
+    /**
      * xappify fork: log every GUEST write into [addr, addr + len), with the value and the PC that
      * wrote it. Pass `len == 0` to disarm (the default).
      *
