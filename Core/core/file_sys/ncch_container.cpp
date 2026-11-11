@@ -134,6 +134,15 @@ Loader::ResultStatus NCCHContainer::OpenFile(const std::string& filepath_, u32 n
     return Loader::ResultStatus::Success;
 }
 
+// xappify fork: Z3DSReadIOFile's constructor asserts (and the assert is live in Release) when it is
+// handed a file that is already a decompressing wrapper. That happens when the decompressed stream
+// itself starts with a Z3DS header, i.e. a ROM that was compressed twice (Crashlytics 745013ec).
+// Never wrap a wrapper; the caller then fails the NCCH magic check and returns ErrorInvalidFormat.
+static bool IsZ3DSContainer(FileUtil::IOFile* file) {
+    return file && !file->IsCompressed() &&
+           FileUtil::Z3DSReadIOFile::GetUnderlyingFileMagic(file) != std::nullopt;
+}
+
 Loader::ResultStatus NCCHContainer::LoadHeader() {
     if (has_header) {
         return Loader::ResultStatus::Success;
@@ -143,7 +152,7 @@ Loader::ResultStatus NCCHContainer::LoadHeader() {
         return Loader::ResultStatus::Error;
     }
 
-    if (FileUtil::Z3DSReadIOFile::GetUnderlyingFileMagic(file.get()) != std::nullopt) {
+    if (IsZ3DSContainer(file.get())) {
         // The file is compressed
         file = std::make_unique<FileUtil::Z3DSReadIOFile>(std::move(file));
     }
@@ -179,7 +188,7 @@ Loader::ResultStatus NCCHContainer::LoadHeader() {
             if (i == 0) {
                 file = HW::UniqueData::OpenUniqueCryptoFile(
                     filepath, "rb", HW::UniqueData::UniqueCryptoFileID::NCCH);
-                if (FileUtil::Z3DSReadIOFile::GetUnderlyingFileMagic(file.get()) != std::nullopt) {
+                if (IsZ3DSContainer(file.get())) {
                     // The file is compressed
                     file = std::make_unique<FileUtil::Z3DSReadIOFile>(std::move(file));
                 }
@@ -210,7 +219,7 @@ Loader::ResultStatus NCCHContainer::Load() {
 
     if (file->IsOpen()) {
 
-        if (FileUtil::Z3DSReadIOFile::GetUnderlyingFileMagic(file.get()) != std::nullopt) {
+        if (IsZ3DSContainer(file.get())) {
             // The file is compressed
             file = std::make_unique<FileUtil::Z3DSReadIOFile>(std::move(file));
         }
@@ -248,8 +257,7 @@ Loader::ResultStatus NCCHContainer::Load() {
                 if (i == 0) {
                     file = HW::UniqueData::OpenUniqueCryptoFile(
                         filepath, "rb", HW::UniqueData::UniqueCryptoFileID::NCCH);
-                    if (FileUtil::Z3DSReadIOFile::GetUnderlyingFileMagic(file.get()) !=
-                        std::nullopt) {
+                    if (IsZ3DSContainer(file.get())) {
                         // The file is compressed
                         file = std::make_unique<FileUtil::Z3DSReadIOFile>(std::move(file));
                     }
